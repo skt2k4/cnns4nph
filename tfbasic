@@ -4,12 +4,12 @@ import os
 import numpy as np
 import tensorflow as tf
 
-def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels):
+def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums):
     learning_rate = 0.0001
     training_iters = 500000
-    batch_size = 5
+    batch_size = 1
     display_step = 500
-    holdoutsize = 600
+    holdoutsize = 15
 
     # Network parameters
     n_input =  65536 # = 256 x 256
@@ -43,10 +43,28 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels):
         return x_batch, y_batch
 
     #Batching infrastructure
-    allindices = range(0,labels.shape[0])
-    np.random.shuffle(allindices)
-    holdoutindices = np.asarray(allindices[0:holdoutsize])
-    trainingindices = np.asarray(allindices[holdoutsize + 1:])
+    allusedslices = set(casenums.flatten())
+    allusedslices = list(allusedslices)
+    np.random.shuffle(allusedslices)
+    holdoutcases = np.asarray(allusedslices[0:holdoutsize])
+    trainingcases = np.asarray(allusedslices[holdoutsize + 1:])
+
+    #initialize holdoutindices, trainingindices
+    holdoutindices = np.empty((0,1))
+    trainingindices = np.empty((0,1))
+    #for loop for building holdoutindices
+    for i in holdoutcases:
+        iindices = np.where(casenums == i)[0]
+        iindices = iindices.reshape((-1,1))
+        holdoutindices = np.vstack((holdoutindices,iindices))
+    
+    #for loop for building trainingindices
+    for i in trainingcases:
+        iindices = np.where(casenums == i)[0]
+        iindices = iindices.reshape((-1,1))
+        trainingindices = np.vstack((trainingindices,iindices))
+    
+
     validationindices = np.asarray(range(0,validationlabels.shape[0]))
 
 
@@ -125,7 +143,7 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels):
                                            
             if step % display_step == 0:
                 if useholdout:
-                    holdout_x, holdout_y = batch(flatcasesmatrix, labels, holdoutindices, 10*batch_size)
+                    holdout_x, holdout_y = batch(flatcasesmatrix, labels, holdoutindices, 4*batch_size)
                     loss, acc,gradz = sess.run([cost, accuracy,gradnorm], feed_dict={x: holdout_x,
                                                                       y: holdout_y,
                                                                       keep_prob: 1.})
@@ -140,7 +158,7 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels):
                             "{:.5f}".format(acc) +", L2 norm of output weight Gradient= " + str(gradz))
 
                 else: # this is for testing on the test set
-                    holdout_x, holdout_y = batch(flatvalidationmatrix, validationlabels, validationindices, 10*batch_size)
+                    holdout_x, holdout_y = batch(flatvalidationmatrix, validationlabels, validationindices, 4*batch_size)
                     loss, acc = sess.run([cost, accuracy], feed_dict={x: holdout_x,
                                                                       y: holdout_y,
                                                                       keep_prob: 1.})
