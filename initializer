@@ -1,7 +1,6 @@
 import sys
 import nibabel as nib
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL']='3' #Suppress TF FYIs below ERROR
 import numpy as np
 
 def main():
@@ -13,7 +12,7 @@ def main():
 
     def subsectimage (f, img_data,start,stop,isaxial): 
     #function will take an image, slice it, and save it to current directory
-        if ixaxial:
+        if isaxial:
             for i in range(start,stop+1):
                 slice = img_data[: , i, :] # the ith slice, x<=i<=y
                 filesave = f[0:5] + '-' + str(i) + '.dat'
@@ -66,11 +65,8 @@ def main():
     os.chdir(slicesfilepath)
     
     if 'validationnums.dat' in os.listdir(slicesfilepath):
-        flatcasesmatrix = np.load('flatcasesmatrix.dat')
-        casenums=np.load('casenums.dat')
-        flatvalidationmatrix = np.load('flatvalidationmatrix.dat')
-        validationnums = np.load('validationnums.dat')
-        print 'Prior files loaded'
+        print 'Prior files available'
+
         
         #Whatever command
     else:
@@ -151,31 +147,31 @@ def main():
                     validationnums = np.vstack((validationnums,int(str(i[1:5]))))
                     counter = counter +1
 
-        
+
+        # Reshapes labels
+        casekeyfilepath =cwd
+        os.chdir(casekeyfilepath)
+        casekey = np.genfromtxt('casekey.csv',delimiter=',')
+        labels = caselookup(casenums) #returns list of labels 
+        validationlabels = caselookup(validationnums)
+        labels = reshapelabels(labels)
+        validationlabels = reshapelabels(validationlabels)
+
+
+        # Saves the files that get used by tflauncher      
         os.chdir(slicesfilepath)
         flatcasesmatrix.dump('flatcasesmatrix.dat')
-        casenums.dump('casenums.dat')
         flatvalidationmatrix.dump('flatvalidationmatrix.dat')
-        validationnums.dump('validationnums.dat')
-        print 'flatcasesmatrix, casenums created and saved'
-        print counter,' flat case matrix generated'
+        casenums.dump('casenums.dat')
+        validationlabels.dump('validationlabels.dat')
+        labels.dump('labels.dat')
+
+        print 'Output files created and saved'
 
 
 
-    print flatcasesmatrix.shape, ' flat case matrix shape'
-    '''print casenums'''
-    print casenums.shape, ' casenums shape'
-    print flatvalidationmatrix.shape, ' validation shape'
-    
-    casekeyfilepath =cwd
-    os.chdir(casekeyfilepath)
-    casekey = np.genfromtxt('casekey.csv',delimiter=',')
-    
-    labels = caselookup(casenums) #returns list of labels 
-    validationlabels = caselookup(validationnums)
+    # Debugging code, will probably get killed
 
-    labels = reshapelabels(labels)
-    validationlabels = reshapelabels(validationlabels)
 
 if __name__ == '__main__':
 	main()
