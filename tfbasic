@@ -4,12 +4,12 @@ import os
 import numpy as np
 import tensorflow as tf
 
-def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels):
+def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums):
     learning_rate = 0.0001
     training_iters = 500000
     batch_size = 5
     display_step = 500
-    holdoutsize = 600
+    holdoutsize = 20
 
     # Network parameters
     n_input =  65536 # = 256 x 256
@@ -43,10 +43,26 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels):
         return x_batch, y_batch
 
     #Batching infrastructure
-    allindices = range(0,labels.shape[0])
-    np.random.shuffle(allindices)
-    holdoutindices = np.asarray(allindices[0:holdoutsize])
-    trainingindices = np.asarray(allindices[holdoutsize + 1:])
+    allusedslices = set(casenums.flatten())
+    allusedslices = list(allusedslices)
+    np.random.shuffle(allusedslices)
+    holdoutcases = np.asarray(allusedslices[0:holdoutsize])
+    trainingcases = np.asarray(allusedslices[holdoutsize + 1:])
+
+    #initialize holdoutindices, trainingindices
+    holdoutindices = np.empty(0,1)
+    trainingindices = np.empty(0,1)
+    #for loop for building holdoutindices
+    for i in holdoutcases:
+        iindices = np.where(casenums == i)[0]
+        holdoutindices = np.vstack(holdoutindices,iindices)
+    
+    #for loop for building trainingindices
+    for i in trainingcases:
+        iindices = np.where(casenums == i)[0]
+        trainingindices = np.vstack(trainingindices,iindices)
+    
+
     validationindices = np.asarray(range(0,validationlabels.shape[0]))
 
 
