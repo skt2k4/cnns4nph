@@ -1,0 +1,50 @@
+import sys
+import nibabel as nib
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL']='3' #Suppress TF FYIs below ERROR
+import numpy as np
+import tensorflow as tf
+import tfbasic
+
+def main():
+# This is the program to run TF after the initializer prepares the intermediary files
+# The goal is for the intializer to do pre-processing (without calling TF)
+# The purpose of this file is to launch TF using pre-prepared files from initializer
+# This way, we can launch test runs of TF fairly quickly
+# Dependency: Needs flatcasesmatrix, casenums, flatvalidationmatrix, validationlabels
+# labels to be in the cwd/slices directory
+
+
+    print 'Launcher started' #debugging
+    cwd = os.getcwd()
+    slicesfilepath = cwd + "/slices"
+    os.chdir(slicesfilepath)
+
+    flatcasesmatrix = np.load('flatcasesmatrix.dat')
+    casenums=np.load('casenums.dat')
+    flatvalidationmatrix = np.load('flatvalidationmatrix.dat')
+    validationlabels = np.load('validationlabels.dat')
+    labels = np.load('labels.dat')
+    print 'Files loaded into launcher'
+
+    print 'Debugging load into launcher:'
+    print 'flat case matrix shape ', flatcasesmatrix.shape
+    print 'casenums shape ', casenums.shape
+    print 'validation shape ', flatvalidationmatrix.shape
+
+
+    # Code to launch TensorFlow
+
+    if len(sys.argv) == 1:
+        print 'running on default gpu'
+        tfbasic.main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
+    
+    else:
+        gpuname = sys.argv[1]
+        gpuname = '/gpu:' + gpuname
+        print 'running on specified gpu'
+        with tf.device(gpuname):
+            tfbasic.main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
+
+if __name__ == '__main__':
+	main()
