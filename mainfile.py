@@ -9,11 +9,18 @@ import tfbasic
 def main():
 
 
-    def subsectimage (f, img_data,start,stop): #function will take an image and slice it
-        for i in range(start,stop+1):
-            slice = img_data[: , i, :] # the ith slice, x<=i<=y
-            filesave = f[0:5] + '-' + str(i) + '.dat'
-            slice.dump(filesave)
+    def subsectimage (f, img_data,start,stop,isaxial): 
+    #function will take an image, slice it, and save it to current directory
+        if ixaxial:
+            for i in range(start,stop+1):
+                slice = img_data[: , i, :] # the ith slice, x<=i<=y
+                filesave = f[0:5] + '-' + str(i) + '.dat'
+                slice.dump(filesave)
+        else:
+            for i in range(start,stop+1):
+                slice = img_data[:,:,i]
+                filesave = f[0:5]+'-'+str(i)+'.dat'
+                slice.dump(filesave)
 
 
     def reshapelabels(labels):
@@ -82,7 +89,7 @@ def main():
                         fstop = caseindices[findex,5]
                     fstart = int(fstart)
                     fstop = int(fstop)
-                    subsectimage(f,epi_img_data,fstart,fstop)
+                    subsectimage(f,epi_img_data,fstart,fstop, isaxial)
 
 
         os.chdir(validationfilepath)
@@ -103,7 +110,7 @@ def main():
                         fstop = caseindices[findex,5]
                     fstart = int(fstart)
                     fstop = int(fstop)
-                    subsectimage(f,epi_img_data,fstart,fstop)
+                    subsectimage(f,epi_img_data,fstart,fstop, isaxial)
 
     
     # This process will flatten all '.dat' files into one matrix and track labels
