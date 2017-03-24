@@ -6,9 +6,9 @@ import tensorflow as tf
 
 def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums):
     learning_rate = 0.0001
-    training_iters = 500000
-    batch_size = 1
-    display_step = 500
+    training_iters = 100000
+    batch_size = 16
+    display_step = 100
     holdoutsize = 15
 
     # Network parameters
@@ -38,6 +38,8 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
         totalsize = availableindices.shape[0]
         indexofavailableindices = np.random.randint(totalsize, size=batchsize)
         indices = availableindices[indexofavailableindices]
+        indices = indices.ravel()
+        indices = indices.astype(int)
         x_batch = x[indices,:]
         y_batch = y[indices]
         return x_batch, y_batch
@@ -97,16 +99,16 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
         #5x5 conv, 1 input, 32 outputs
         'wc1': tf.Variable(tf.random_normal([5, 5, 1, 32])),
         # 5x5 conv, 32 inputs, 64 outputs
-        'wc2': tf.Variable(tf.random_normal([5, 5, 32, 64])),
+        'wc2': tf.Variable(tf.random_normal([5, 5, 32, 32])),
         # fully connected, 64*64*64 inputs, 1024 outputs
-        'wd1': tf.Variable(tf.random_normal([64*64*64, 1024])),
-        # 1034 inputs, 3 outputs
+        'wd1': tf.Variable(tf.random_normal([32*64*64, 1024])),
+        # 1024 inputs, 3 outputs
         'out': tf.Variable(tf.random_normal([1024, n_classes]))
     }
 
     biases = {
         'bc1': tf.Variable(tf.random_normal([32])),
-        'bc2': tf.Variable(tf.random_normal([64])),
+        'bc2': tf.Variable(tf.random_normal([32])),
         'bd1': tf.Variable(tf.random_normal([1024])),
         'out': tf.Variable(tf.random_normal([n_classes]))
     }
@@ -127,6 +129,9 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
     gradnorm = tf.norm(grads, ord='euclidean')
     # Initialize variables
     init = tf.global_variables_initializer()
+    
+    #accuracy log
+    acclog = np.empty((0,2))
     
     # Launch graph
     print("starting tensorflow session")
@@ -166,10 +171,12 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
                     print("Test set - Iter " + str(step*batch_size) + ", Minibatch Loss= " + \
                         "{:.6f}".format(loss) + ", Training Accuracy= " + \
                         "{:.5f}".format(acc))
-                    
-                    
+                
+                acclog = np.vstack((acclog,(step*batch_size,acc)))    
+                
             step += 1
         print("Optimization finished!")
+        acclog.dump('accuracylog.dat')
 
 
 if __name__ == '__main__':
