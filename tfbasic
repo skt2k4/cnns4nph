@@ -7,18 +7,21 @@ import tensorflow as tf
 def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums):
     learning_rate = 0.0001
     training_iters = 100000
-    batch_size = 16
-    display_step = 100
+    batch_size = 5
+    display_step = 10
     holdoutsize = 15
 
     # Network parameters
     n_input =  65536 # = 256 x 256
     n_classes = 3 #three total classes for classification
     dropout = .5
-    useholdout = True
-    skipprintinggrad = False
     l2lambda = 2
     tf.logging.set_verbosity(tf.logging.ERROR)
+
+    # Benchmarking parameters
+    useholdout = True
+    skipprintinggrad = False
+    casewiseaccuracy = True
 
     # tf graph input
     x = tf.placeholder(tf.float32, [None, n_input])
@@ -127,15 +130,18 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
     accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
     grads = tf.gradients(cost,[weights['out']])
     gradnorm = tf.norm(grads, ord='euclidean')
+    predictions = tf.argmax(pred,1)
+    
     # Initialize variables
     init = tf.global_variables_initializer()
     
     #accuracy log
     acclog = np.empty((0,2))
-    
+    casewiseacclog = np.empty((0,2))
     # Launch graph
     print("starting tensorflow session")
     with tf.Session() as sess:
+        tf.set_random_seed(07271989)
         sess.run(init)
         step = 1
 
@@ -148,7 +154,7 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
                                            
             if step % display_step == 0:
                 if useholdout:
-                    holdout_x, holdout_y = batch(flatcasesmatrix, labels, holdoutindices, 4*batch_size)
+                    holdout_x, holdout_y = batch(flatcasesmatrix, labels, holdoutindices, 10*batch_size)
                     loss, acc,gradz = sess.run([cost, accuracy,gradnorm], feed_dict={x: holdout_x,
                                                                       y: holdout_y,
                                                                       keep_prob: 1.})
@@ -161,7 +167,10 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
                         print("Holdout - Iter " + str(step*batch_size) + ", Minibatch Loss= " + \
                             "{:.6f}".format(loss) + ", Training Accuracy= " + \
                             "{:.5f}".format(acc) +", L2 norm of output weight Gradient= " + str(gradz))
+                    
+                    acclog = np.vstack((acclog,(step*batch_size,acc)))    
 
+                    
                 else: # this is for testing on the test set
                     holdout_x, holdout_y = batch(flatvalidationmatrix, validationlabels, validationindices, 4*batch_size)
                     loss, acc = sess.run([cost, accuracy], feed_dict={x: holdout_x,
@@ -171,12 +180,47 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
                     print("Test set - Iter " + str(step*batch_size) + ", Minibatch Loss= " + \
                         "{:.6f}".format(loss) + ", Training Accuracy= " + \
                         "{:.5f}".format(acc))
+
+                    acclog = np.vstack((acclog,(step*batch_size,acc)))    
+
+                if casewiseaccuracy:
+                    rightcases = 0
+                    totalcasewisecounter = 0
+                    for i in holdoutcases:
+
+                        casewiseiindices = np.where(casenums ==i)[0]
+                        casewise_x, casewise_y = batch(flatcasesmatrix,labels,casewiseiindices,casewiseiindices.shape[0])               
+                        predicts = sess.run(predictions, feed_dict={x: casewise_x,
+                                                                          y: casewise_y,
+                                                                          keep_prob: 1.})
+                        # predicts will be an array like [1 1 1 1 2], say, 
+                        # for predictions of a set of slices that're mostly 1
+                        # with one that's a 2
+                        predclass = np.argmax(np.bincount(predicts))
+                        actualclass = np.argmax(np.sum(casewise_y.astype(int),axis=0))
+                        '''print 'predclass is ', predclass
+                        print 'actualclass is ', actualclass''' # debugging
+                        if int(predclass) == int(actualclass):
+                            rightcases = rightcases + 1
+
+                        totalcasewisecounter = totalcasewisecounter + 1
+
+                    casewiseaccuracy = np.float32(rightcases) / np.float32(totalcasewisecounter)
+                    
+                    print "casewise accuracy was ", casewiseaccuracy
+
+                    casewiseacclog = np.vstack((casewiseacclog,(step*batch_size,casewiseaccuracy)))    
+                    
+
+
+
+
                 
-                acclog = np.vstack((acclog,(step*batch_size,acc)))    
                 
             step += 1
         print("Optimization finished!")
         acclog.dump('accuracylog.dat')
+        casewiseacclog.dump('casewiseaccuracy.dat')
 
 
 if __name__ == '__main__':
