@@ -7,8 +7,16 @@ def main():
 # This file will set up the necessary data files to launch the initializer file
 # This file is meant to pre-process images
 # Dependencies
-# - Needs casesliceindices.csv
-# - Needs cwd/slices and cwd/slices/Validation (note cap) to be valid
+# - Needs a master/cases directory that holds the raw MRI data, separated into training and validation
+# - The validation data need to be in a master/cases/validation folder
+# - master/cases must have casesliceindices.csv [guides MRI slice selection] and casekey.csv [maps codes to labels]
+# - Needs a master/datasets directory that holds subdirectories that have data for individual subsets
+
+    # Important control variables
+    experimentname = 'narrowaxialslices' #holds name of experiment, which is used for creating folders
+    isaxial = True
+    isnarrowaxial = True
+
 
     def subsectimage (f, img_data,start,stop,isaxial): 
     #function will take an image, slice it, and save it to current directory
@@ -22,7 +30,6 @@ def main():
                 slice = img_data[:,:,i]
                 filesave = f[0:5]+'-'+str(i)+'.dat'
                 slice.dump(filesave)
-
 
     def reshapelabels(labels):
     #Reshape labels into mx3 matrix
@@ -48,33 +55,37 @@ def main():
         return casepairs
 
     numpixels = 256 * 256
-    isaxial = True
-    isnarrowaxial = True
     fstart = -1
     fstop = -1
+
 
     print 'Initializer started' #debugging
     print 'This program preprocesses images'
     print 'This program will process axial slices: ' + str(isaxial)
     print 'This program will process narrow axial slices: ' +str(isnarrowaxial)
-    cwd = os.getcwd()
-    slicesfilepath = cwd + "/slices"
-    validationfilepath = slicesfilepath + "/Validation"
-
-
-    os.chdir(slicesfilepath)
+    casesfilepath = '/ifs/home/skt275/cases' # holds slices filepath
+    validationfilepath = casesfilepath + "/validation"
+    datasetsfilepath = '/ifs/home/skt275/datasets/'
+    experimentfilepath = datasetsfilepath + experimentname
+    experimentvalidationfilepath = experimentfilepath + "/validation"
     
-    if 'validationnums.dat' in os.listdir(slicesfilepath):
+    if not os.path.isdir(experimentfilepath): # make experiment filepath if not there
+        os.makedirs(experimentfilepath)
+        os.makedirs(experimentvalidationfilepath)
+
+
+    os.chdir(experimentfilepath) # revise
+    if 'validationnums.dat' in os.listdir(experimentfilepath):
         print 'Prior files available'
 
         
         #Whatever command
     else:
         print 'slicing images'
-        os.chdir(cwd)
+        os.chdir(casesfilepath)
         caseindices = np.genfromtxt('casesliceindices.csv', delimiter=',') #case 1 is indexed as 0, etc
-        os.chdir(slicesfilepath)
-        for f in os.listdir(slicesfilepath):
+
+        for f in os.listdir(casesfilepath):
             if f.find('.nii') != -1: #If it's a .nii file
                 epi_img = nib.load(f)
                 epi_img_data = epi_img.get_data()
@@ -91,8 +102,9 @@ def main():
                         fstop = caseindices[findex,5]
                     fstart = int(fstart)
                     fstop = int(fstop)
+                    os.chdir(experimentfilepath)
                     subsectimage(f,epi_img_data,fstart,fstop, isaxial)
-
+                    os.chdir(casesfilepath)
 
         os.chdir(validationfilepath)
         for f in os.listdir(validationfilepath):
@@ -112,8 +124,9 @@ def main():
                         fstop = caseindices[findex,5]
                     fstart = int(fstart)
                     fstop = int(fstop)
+                    os.chdir(experimentvalidationfilepath)
                     subsectimage(f,epi_img_data,fstart,fstop, isaxial)
-
+                    os.chdir(validationfilepath)
     
     # This process will flatten all '.dat' files into one matrix and track labels
 
@@ -124,8 +137,8 @@ def main():
         validationnums = np.empty((0,1))
         counter = 0
 
-        os.chdir(slicesfilepath)
-        for i in os.listdir(slicesfilepath):
+        os.chdir(experimentfilepath)
+        for i in os.listdir(experimentfilepath):
             if '.dat' in i:
                 boxdata = np.load(i) # load the data
                 if boxdata.shape[0]*boxdata.shape[1]==numpixels:
@@ -136,8 +149,8 @@ def main():
                     counter = counter +1
                 '''if counter > 25: break #for debugging'''
 
-        os.chdir(validationfilepath)
-        for i in os.listdir(validationfilepath):
+        os.chdir(experimentvalidationfilepath)
+        for i in os.listdir(experimentvalidationfilepath):
             if '.dat' in i:
                 boxdata = np.load(i) # load the data
                 if boxdata.shape[0]*boxdata.shape[1]==numpixels:
@@ -149,8 +162,7 @@ def main():
 
 
         # Reshapes labels
-        casekeyfilepath =cwd
-        os.chdir(casekeyfilepath)
+        os.chdir(casesfilepath)
         casekey = np.genfromtxt('casekey.csv',delimiter=',')
         labels = caselookup(casenums) #returns list of labels 
         validationlabels = caselookup(validationnums)
@@ -159,9 +171,9 @@ def main():
 
 
         # Saves the files that get used by tflauncher      
-        os.chdir(slicesfilepath)
-        flatcasesmatrix.dump('flatcasesmatrix.dat')
-        flatvalidationmatrix.dump('flatvalidationmatrix.dat')
+        os.chdir(experimentfilepath)
+        np.save('flatcasesmatrix.dat',flatcasesmatrix)
+        np.save('flatvalidationmatrix.dat', flatvalidationmatrix)
         casenums.dump('casenums.dat')
         validationlabels.dump('validationlabels.dat')
         labels.dump('labels.dat')
@@ -170,7 +182,6 @@ def main():
 
 
 
-    # Debugging code, will probably get killed
 
 
 if __name__ == '__main__':
