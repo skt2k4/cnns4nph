@@ -14,15 +14,22 @@ def main():
 # Dependency: Needs flatcasesmatrix, casenums, flatvalidationmatrix, validationlabels
 # labels to be in the cwd/slices directory
 
+    experimentname = 'coronalslices' #holds name of experiment
+    experimentnote = 'Looks at coronal slices with 10x10 window' # useful for logigng
 
-    print 'Launcher started' #debugging
+    print 'Launcher started, running experiment: ' + experimentname
+    print experimentnote
     cwd = os.getcwd()
-    slicesfilepath = cwd + "/slices"
-    os.chdir(slicesfilepath)
+    datasetsfilepath = '/ifs/home/skt275/datasets/'
+    experimentfilepath = datasetsfilepath + experimentname
+    
 
-    flatcasesmatrix = np.load('flatcasesmatrix.dat')
+
+    # Loads the files in the specified experiment's filepath
+    os.chdir(experimentfilepath)
+    flatcasesmatrix = np.load('flatcasesmatrix.dat.npy')
     casenums=np.load('casenums.dat')
-    flatvalidationmatrix = np.load('flatvalidationmatrix.dat')
+    flatvalidationmatrix = np.load('flatvalidationmatrix.dat.npy')
     validationlabels = np.load('validationlabels.dat')
     labels = np.load('labels.dat')
     print 'Files loaded into launcher'
@@ -34,7 +41,7 @@ def main():
 
 
     # Code to launch TensorFlow
-
+    os.chdir(cwd)
     if len(sys.argv) == 1:
         print 'running on default gpu'
         tfbasic.main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
