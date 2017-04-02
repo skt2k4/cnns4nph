@@ -5,18 +5,21 @@ import numpy as np
 import tensorflow as tf
 
 def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums):
-    learning_rate = 0.0001
-    training_iters = 100000
+    learning_rate = 1e-6
+    training_iters = 5e5
     batch_size = 5
-    display_step = 10
+    display_step = 100
     holdoutsize = 15
 
     # Network parameters
     n_input =  65536 # = 256 x 256
     n_classes = 3 #three total classes for classification
     dropout = .5
-    l2lambda = 2
+    l2lambda = 1
     tf.logging.set_verbosity(tf.logging.ERROR)
+    windowlevel1 = 10
+    windowlevel2 = 10
+
 
     # Benchmarking parameters
     useholdout = True
@@ -100,9 +103,9 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
     # Store layers weight and bias
     weights = {
         #5x5 conv, 1 input, 32 outputs
-        'wc1': tf.Variable(tf.random_normal([5, 5, 1, 32])),
+        'wc1': tf.Variable(tf.random_normal([windowlevel1, windowlevel1, 1, 32])),
         # 5x5 conv, 32 inputs, 64 outputs
-        'wc2': tf.Variable(tf.random_normal([5, 5, 32, 32])),
+        'wc2': tf.Variable(tf.random_normal([windowlevel2, windowlevel2, 32, 32])),
         # fully connected, 64*64*64 inputs, 1024 outputs
         'wd1': tf.Variable(tf.random_normal([32*64*64, 1024])),
         # 1024 inputs, 3 outputs
@@ -141,7 +144,6 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
     # Launch graph
     print("starting tensorflow session")
     with tf.Session() as sess:
-        tf.set_random_seed(07271989)
         sess.run(init)
         step = 1
 
