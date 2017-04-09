@@ -6,6 +6,7 @@ import numpy as np
 import tensorflow as tf
 import tfbasic
 
+
 def main():
 # This is the program to run TF after the initializer prepares the intermediary files
 # The goal is for the intializer to do pre-processing (without calling TF)
@@ -14,15 +15,15 @@ def main():
 # Dependency: Needs flatcasesmatrix, casenums, flatvalidationmatrix, validationlabels
 # labels to be in the cwd/slices directory
 
-    experimentname = 'coronalslices' #holds name of experiment
-    experimentnote = 'Looks at coronal slices with 10x10 window' # useful for logigng
+    experimentname = 'narrowaxialslices' #holds name of experiment
+    experimentnote = 'Looks at axial slices with 5x5 window, no noise, 5e5 iterations' # useful for logigng
 
     print 'Launcher started, running experiment: ' + experimentname
     print experimentnote
     cwd = os.getcwd()
     datasetsfilepath = '/ifs/home/skt275/datasets/'
     experimentfilepath = datasetsfilepath + experimentname
-    
+    checkpointsfilepath = cwd + '/checkpoints'
 
 
     # Loads the files in the specified experiment's filepath
@@ -44,14 +45,14 @@ def main():
     os.chdir(cwd)
     if len(sys.argv) == 1:
         print 'running on default gpu'
-        tfbasic.main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
+        tfbasic.main(checkpointsfilepath, flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
     
     else:
         gpuname = sys.argv[1]
         gpuname = '/gpu:' + gpuname
         print 'running on specified gpu'
         with tf.device(gpuname):
-            tfbasic.main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
+            tfbasic.main(checkpointsfilepath, flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
 
 if __name__ == '__main__':
 	main()
