@@ -4,11 +4,42 @@ import os
 import numpy as np
 import tensorflow as tf
 
-def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums):
+
+
+
+
+def conv2d(x, W, b, strides=1):
+    x = tf.nn.conv2d(x, W, strides=[1, strides, strides, 1], padding='SAME')
+    x = tf.nn.bias_add(x, b)
+    return tf.nn.relu(x)
+
+def maxpool2d(x, k=2):
+    return tf.nn.max_pool(x, ksize=[1, k, k, 1], strides=[1, k, k, 1], padding='SAME')
+
+def batch(x, y, availableindices, batchsize,noisebool):
+    totalsize = availableindices.shape[0]
+    indexofavailableindices = np.random.randint(totalsize, size=batchsize)
+    indices = availableindices[indexofavailableindices]
+    indices = indices.ravel()
+    indices = indices.astype(int)
+    x_batch = x[indices,:]
+    y_batch = y[indices]
+    
+    if noisebool == True:
+        noise = np.random.normal(loc=0.0, scale=SDvar, size=x_batch.shape)
+        x_batch = np.rint(x_batch+noise)
+        x_batch = np.minimum(x_batch, 255) #max value equal or below 255
+        x_batch = np.maximum(x_batch, 0) # min value equal or above 0
+
+    return x_batch, y_batch
+
+def main(checkpointsfilepath, flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums):
+    tf.logging.set_verbosity(tf.logging.ERROR)
     learning_rate = 1e-6
     training_iters = 5e5
     batch_size = 5
-    display_step = 100
+    display_step = 1000
+    save_step = int(training_iters/2)
     holdoutsize = 15
 
     # Network parameters
@@ -16,64 +47,49 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
     n_classes = 3 #three total classes for classification
     dropout = .5
     l2lambda = 1
-    tf.logging.set_verbosity(tf.logging.ERROR)
-    windowlevel1 = 10
-    windowlevel2 = 10
-
-
-    # Benchmarking parameters
+    windowlevel1 = 5
+    windowlevel2 = 5
+    SDvar = 20
+    
+    # Boolean controllers
     useholdout = True
     skipprintinggrad = False
     casewiseaccuracy = True
+    addnoise = False
+
+
 
     # tf graph input
-    x = tf.placeholder(tf.float32, [None, n_input])
-    y = tf.placeholder(tf.float32, [None, n_classes])
-    keep_prob = tf.placeholder(tf.float32) #dropout
+    with tf.name_scope('initializing'):
+        x = tf.placeholder(tf.float32, [None, n_input], name="inputs")
+        y = tf.placeholder(tf.float32, [None, n_classes], name="labels")
+        keep_prob = tf.placeholder(tf.float32) #dropout
 
-    # wrappers
-    def conv2d(x, W, b, strides=1):
-        x = tf.nn.conv2d(x, W, strides=[1, strides, strides, 1], padding='SAME')
-        x = tf.nn.bias_add(x, b)
-        return tf.nn.relu(x)
 
-    def maxpool2d(x, k=2):
-        return tf.nn.max_pool(x, ksize=[1, k, k, 1], strides=[1, k, k, 1], padding='SAME')
+    with tf.name_scope('batching'):
+        #Batching infrastructure
+        allusedslices = set(casenums.flatten())
+        allusedslices = list(allusedslices)
+        np.random.shuffle(allusedslices)
+        holdoutcases = np.asarray(allusedslices[0:holdoutsize])
+        trainingcases = np.asarray(allusedslices[holdoutsize + 1:])
+
+        #initialize holdoutindices, trainingindices
+        holdoutindices = np.empty((0,1))
+        trainingindices = np.empty((0,1))
+        #for loop for building holdoutindices
+        for i in holdoutcases:
+            iindices = np.where(casenums == i)[0]
+            iindices = iindices.reshape((-1,1))
+            holdoutindices = np.vstack((holdoutindices,iindices))
     
-    def batch(x, y, availableindices, batchsize):
-        totalsize = availableindices.shape[0]
-        indexofavailableindices = np.random.randint(totalsize, size=batchsize)
-        indices = availableindices[indexofavailableindices]
-        indices = indices.ravel()
-        indices = indices.astype(int)
-        x_batch = x[indices,:]
-        y_batch = y[indices]
-        return x_batch, y_batch
+        #for loop for building trainingindices
+        for i in trainingcases:
+            iindices = np.where(casenums == i)[0]
+            iindices = iindices.reshape((-1,1))
+            trainingindices = np.vstack((trainingindices,iindices))
 
-    #Batching infrastructure
-    allusedslices = set(casenums.flatten())
-    allusedslices = list(allusedslices)
-    np.random.shuffle(allusedslices)
-    holdoutcases = np.asarray(allusedslices[0:holdoutsize])
-    trainingcases = np.asarray(allusedslices[holdoutsize + 1:])
-
-    #initialize holdoutindices, trainingindices
-    holdoutindices = np.empty((0,1))
-    trainingindices = np.empty((0,1))
-    #for loop for building holdoutindices
-    for i in holdoutcases:
-        iindices = np.where(casenums == i)[0]
-        iindices = iindices.reshape((-1,1))
-        holdoutindices = np.vstack((holdoutindices,iindices))
-    
-    #for loop for building trainingindices
-    for i in trainingcases:
-        iindices = np.where(casenums == i)[0]
-        iindices = iindices.reshape((-1,1))
-        trainingindices = np.vstack((trainingindices,iindices))
-    
-
-    validationindices = np.asarray(range(0,validationlabels.shape[0]))
+        validationindices = np.asarray(range(0,validationlabels.shape[0]))
 
 
     #model
@@ -81,85 +97,116 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
         x = tf.reshape(x, shape=[-1,256,256,1])
     
         #convolution 1
-        conv1 = conv2d(x, weights['wc1'], biases['bc1'])
-        conv1 = maxpool2d(conv1, k=2)
-    
+        with tf.name_scope('conv1'):
+            conv1 = conv2d(x, weights['wc1'], biases['bc1'])
+            conv1 = maxpool2d(conv1, k=2)
+            
         #convolution 2
-        conv2 = conv2d(conv1, weights['wc2'], biases['bc2'])
-        conv2 = maxpool2d(conv2, k=2)
+        with tf.name_scope('conv2'):
+            conv2 = conv2d(conv1, weights['wc2'], biases['bc2'])
+            conv2 = maxpool2d(conv2, k=2)
     
         #fully connected layer
         #reshape conv2 output to fit fully connected layer
-        fc1 = tf.reshape(conv2, [-1, weights['wd1'].get_shape().as_list()[0]])
-        fc1 = tf.add(tf.matmul(fc1, weights['wd1']), biases['bd1'])
-        fc1 = tf.nn.relu(fc1)
-        # apply dropout
-        fc1 = tf.nn.dropout(fc1, dropout)
+        with tf.name_scope('fullyconnected'):
+            fc1 = tf.reshape(conv2, [-1, weights['wd1'].get_shape().as_list()[0]])
+            fc1 = tf.add(tf.matmul(fc1, weights['wd1']), biases['bd1'])
+            fc1 = tf.nn.relu(fc1)
+            # apply dropout
+            fc1 = tf.nn.dropout(fc1, dropout)
     
         # Output, class prediction
-        out = tf.add(tf.matmul(fc1, weights['out']), biases['out'])
+        with tf.name_scope('outlayer'):
+            out = tf.add(tf.matmul(fc1, weights['out']), biases['out'])
         return out
 
     # Store layers weight and bias
-    weights = {
-        #5x5 conv, 1 input, 32 outputs
-        'wc1': tf.Variable(tf.random_normal([windowlevel1, windowlevel1, 1, 32])),
-        # 5x5 conv, 32 inputs, 64 outputs
-        'wc2': tf.Variable(tf.random_normal([windowlevel2, windowlevel2, 32, 32])),
-        # fully connected, 64*64*64 inputs, 1024 outputs
-        'wd1': tf.Variable(tf.random_normal([32*64*64, 1024])),
-        # 1024 inputs, 3 outputs
-        'out': tf.Variable(tf.random_normal([1024, n_classes]))
-    }
+    
+    with tf.name_scope('initializing'):
+        weights = {
+            #5x5 conv, 1 input, 32 outputs
+            'wc1': tf.Variable(tf.random_normal([windowlevel1, windowlevel1, 1, 32]), name="wc1"),
+            # 5x5 conv, 32 inputs, 64 outputs
+            'wc2': tf.Variable(tf.random_normal([windowlevel2, windowlevel2, 32, 32]), name="wc2"),
+            # fully connected, 32*64*64 inputs, 1024 outputs
+            'wd1': tf.Variable(tf.random_normal([32*64*64, 1024]), name="wd1"),
+            # 1024 inputs, 3 outputs
+            'out': tf.Variable(tf.random_normal([1024, n_classes]), name="wout")
+        }
 
-    biases = {
-        'bc1': tf.Variable(tf.random_normal([32])),
-        'bc2': tf.Variable(tf.random_normal([32])),
-        'bd1': tf.Variable(tf.random_normal([1024])),
-        'out': tf.Variable(tf.random_normal([n_classes]))
-    }
+        biases = {
+            'bc1': tf.Variable(tf.random_normal([32]), name="bc1"),
+            'bc2': tf.Variable(tf.random_normal([32]), name="bc2"),
+            'bd1': tf.Variable(tf.random_normal([1024]), name="bd1"),
+            'out': tf.Variable(tf.random_normal([n_classes]), name="bout")
+        }
+    
+    global_step = tf.Variable(0, dtype=tf.int32, trainable=False, name='global_step')
 
     #construct model
-    pred = conv_net(x, weights, biases, keep_prob)
+    with tf.name_scope('CNN'):
+        pred = conv_net(x, weights, biases, keep_prob)
 
     # Define loss and optimizer
-    l2_reg = tf.nn.l2_loss(weights['wc1'])+tf.nn.l2_loss(weights['wc2'])+tf.nn.l2_loss(weights['wd1'])+tf.nn.l2_loss(weights['out'])
-    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=y)) + l2lambda*l2_reg
+    with tf.name_scope('cost'):
+        l2_reg = tf.nn.l2_loss(weights['wc1'])+tf.nn.l2_loss(weights['wc2'])+tf.nn.l2_loss(weights['wd1'])+tf.nn.l2_loss(weights['out'])
+        cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=y)) + l2lambda*l2_reg
 
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
+    with tf.name_scope('train'):
+        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost, global_step=global_step)
 
     # Evaluate model
-    correct_pred = tf.equal(tf.argmax(pred,1), tf.argmax(y,1))
-    accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
-    grads = tf.gradients(cost,[weights['out']])
-    gradnorm = tf.norm(grads, ord='euclidean')
-    predictions = tf.argmax(pred,1)
+    with tf.name_scope("evaluatingaccuracy"):
+        correct_pred = tf.equal(tf.argmax(pred,1), tf.argmax(y,1))
+        accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+        grads = tf.gradients(cost,[weights['out']])
+        gradnorm = tf.norm(grads, ord='euclidean')
+        predictions = tf.argmax(pred,1)
+
+        #accuracy log
+        acclog = np.empty((0,2))
+        casewiseacclog = np.empty((0,2))
+        saver = tf.train.Saver()
+    
+    with tf.name_scope("summaries") as scope:
+        tf.summary.scalar("cost", cost)
+        tf.summary.scalar("accuracy", accuracy)
+        tf.summary.histogram("histogram loss", cost)
+    summary_op = tf.summary.merge_all()
+
+
     
     # Initialize variables
-    init = tf.global_variables_initializer()
+    with tf.name_scope('initializing'):
+        init = tf.global_variables_initializer()
     
-    #accuracy log
-    acclog = np.empty((0,2))
-    casewiseacclog = np.empty((0,2))
+
     # Launch graph
     print("starting tensorflow session")
     with tf.Session() as sess:
+        tf.set_random_seed(1)
         sess.run(init)
         step = 1
-
+        writer = tf.summary.FileWriter(checkpointsfilepath, graph=tf.get_default_graph())
+        
         while step * batch_size < training_iters:
-            batch_x, batch_y = batch(flatcasesmatrix, labels, trainingindices, batch_size) 
+            tf.set_random_seed(step)
+            np.random.seed(step)
+            batch_x, batch_y = batch(flatcasesmatrix, labels, trainingindices, batch_size, addnoise) 
             # run optimizer on (backprop)
-            sess.run(optimizer, feed_dict={x: batch_x,
+            _, summary = sess.run([optimizer, summary_op], feed_dict={x: batch_x,
                                            y: batch_y, 
                                            keep_prob: dropout})
+            writer.add_summary(summary, step * batch_size)
+            
                                            
             if step % display_step == 0:
                 if useholdout:
-                    holdout_x, holdout_y = batch(flatcasesmatrix, labels, holdoutindices, 10*batch_size)
-                    loss, acc,gradz = sess.run([cost, accuracy,gradnorm], feed_dict={x: holdout_x,
+                    holdout_x, holdout_y = batch(flatcasesmatrix, labels, holdoutindices, 10*batch_size,noisebool=False)
+                    loss, acc, gradz = sess.run([cost, accuracy,gradnorm], feed_dict={x: holdout_x,
                                                                       y: holdout_y,
                                                                       keep_prob: 1.})
+                    
 
                     if skipprintinggrad:
                         print("Holdout - Iter " + str(step*batch_size) + ", Minibatch Loss= " + \
@@ -170,12 +217,11 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
                             "{:.6f}".format(loss) + ", Training Accuracy= " + \
                             "{:.5f}".format(acc) +", L2 norm of output weight Gradient= " + str(gradz))
                     
-                    acclog = np.vstack((acclog,(step*batch_size,acc)))    
+                    acclog = np.vstack((acclog,(step*batch_size,acc)))
 
-                    
                 else: # this is for testing on the test set
-                    holdout_x, holdout_y = batch(flatvalidationmatrix, validationlabels, validationindices, 4*batch_size)
-                    loss, acc = sess.run([cost, accuracy], feed_dict={x: holdout_x,
+                    holdout_x, holdout_y = batch(flatvalidationmatrix, validationlabels, validationindices, 4*batch_size, noisebool=False)
+                    loss, acc= sess.run([cost, accuracy], feed_dict={x: holdout_x,
                                                                       y: holdout_y,
                                                                       keep_prob: 1.})
 
@@ -191,7 +237,7 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
                     for i in holdoutcases:
 
                         casewiseiindices = np.where(casenums ==i)[0]
-                        casewise_x, casewise_y = batch(flatcasesmatrix,labels,casewiseiindices,casewiseiindices.shape[0])               
+                        casewise_x, casewise_y = batch(flatcasesmatrix,labels,casewiseiindices,casewiseiindices.shape[0],noisebool=False)               
                         predicts = sess.run(predictions, feed_dict={x: casewise_x,
                                                                           y: casewise_y,
                                                                           keep_prob: 1.})
@@ -212,14 +258,14 @@ def main(flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums)
                     print "casewise accuracy was ", casewiseaccuracy
 
                     casewiseacclog = np.vstack((casewiseacclog,(step*batch_size,casewiseaccuracy)))    
-                    
+            
+            if step % save_step == 0:
+                saver.save(sess, '315prototype', global_step = global_step)
 
-
-
-
-                
-                
+                                
             step += 1
+    
+        
         print("Optimization finished!")
         acclog.dump('accuracylog.dat')
         casewiseacclog.dump('casewiseaccuracy.dat')
