@@ -3,6 +3,67 @@ import nibabel as nib
 import os
 import numpy as np
 
+def loadimage(f):
+    img = nib.load(f)
+    img_data = img.get_data()
+    return img_data
+
+    
+
+def subsectimage (f, img_data,start,stop,isaxial): 
+#function will take an image, slice it, and save it to current directory
+    if isaxial:
+        for i in range(start,stop+1):
+            slice = img_data[: , i, :] # the ith slice, x<=i<=y
+            filesave = f[0:5] + '-' + str(i) + '.dat'
+            slice.dump(filesave)
+    else:
+        for i in range(start,stop+1):
+            slice = img_data[:,:,i]
+            filesave = f[0:5]+'-'+str(i)+'.dat'
+            slice.dump(filesave)
+            
+def imgindexselection(f):
+    findex = int(f[1:5])-1
+    if isaxial and isnarrowaxial:                    
+        fstart = caseindices[findex,1]
+        fstop = caseindices[findex,2]
+    elif isaxial == True and isnarrowaxial == False:
+        fstart = caseindices[findex,0]
+        fstop = caseindices[findex,3]
+    else:
+        fstart = caseindices[findex,4]
+        fstop = caseindices[findex,5]
+    fstart = int(fstart)
+    fstop = int(fstop)
+    return fstart, fstop
+
+def reshapelabels(labels):
+#Reshape labels into mx3 matrix
+#1 = NPH, 2 = AD, 3 = Normal Control
+#1 = 100, 2 = 010, 3 = 001
+    newlabels = np.empty((0,3))
+    for i in labels:
+        if i == 1:
+            newlabels = np.vstack((newlabels,[1,0,0]))
+        if i == 2:
+            newlabels = np.vstack((newlabels,[0,1,0]))
+        if i == 3:
+            newlabels = np.vstack((newlabels,[0,0,1]))
+    return newlabels
+
+def caselookup(casenums):
+    casepairs = np.empty((0,1))
+    for i in casenums: #for every case in casenums
+        pairind = np.where(casekey[:,0]==i)[0]#lookup index of i-th case w/in casekey
+        # pairind[0] holds index within casekey
+        pair = casekey[pairind,1]
+        casepairs= np.vstack((casepairs,pair))   
+    return casepairs
+
+
+
+
 def main():
 # This file will set up the necessary data files to launch the initializer file
 # This file is meant to pre-process images
@@ -16,44 +77,6 @@ def main():
     experimentname = 'narrowaxialslices' #holds name of experiment, which is used for creating folders
     isaxial = True
     isnarrowaxial = True
-
-
-    def subsectimage (f, img_data,start,stop,isaxial): 
-    #function will take an image, slice it, and save it to current directory
-        if isaxial:
-            for i in range(start,stop+1):
-                slice = img_data[: , i, :] # the ith slice, x<=i<=y
-                filesave = f[0:5] + '-' + str(i) + '.dat'
-                slice.dump(filesave)
-        else:
-            for i in range(start,stop+1):
-                slice = img_data[:,:,i]
-                filesave = f[0:5]+'-'+str(i)+'.dat'
-                slice.dump(filesave)
-
-    def reshapelabels(labels):
-    #Reshape labels into mx3 matrix
-    #1 = NPH, 2 = AD, 3 = Normal Control
-    #1 = 100, 2 = 010, 3 = 001
-        newlabels = np.empty((0,3))
-        for i in labels:
-            if i == 1:
-                newlabels = np.vstack((newlabels,[1,0,0]))
-            if i == 2:
-                newlabels = np.vstack((newlabels,[0,1,0]))
-            if i == 3:
-                newlabels = np.vstack((newlabels,[0,0,1]))
-        return newlabels
-
-    def caselookup(casenums):
-        casepairs = np.empty((0,1))
-        for i in casenums: #for every case in casenums
-            pairind = np.where(casekey[:,0]==i)[0]#lookup index of i-th case w/in casekey
-            # pairind[0] holds index within casekey
-            pair = casekey[pairind,1]
-            casepairs= np.vstack((casepairs,pair))   
-        return casepairs
-
     numpixels = 256 * 256
     fstart = -1
     fstop = -1
@@ -63,7 +86,7 @@ def main():
     print 'This program preprocesses images'
     print 'This program will process axial slices: ' + str(isaxial)
     print 'This program will process narrow axial slices: ' +str(isnarrowaxial)
-    casesfilepath = '/ifs/home/skt275/cases' # holds slices filepath
+    casesfilepath = '/ifs/home/skt275/cases' # holds slices filepath #if debugging, replace /cases w/ /debug
     validationfilepath = casesfilepath + "/validation"
     datasetsfilepath = '/ifs/home/skt275/datasets/'
     experimentfilepath = datasetsfilepath + experimentname
@@ -73,13 +96,9 @@ def main():
         os.makedirs(experimentfilepath)
         os.makedirs(experimentvalidationfilepath)
 
-
-    os.chdir(experimentfilepath) # revise
+    os.chdir(experimentfilepath) 
     if 'validationnums.dat' in os.listdir(experimentfilepath):
         print 'Prior files available'
-
-        
-        #Whatever command
     else:
         print 'slicing images'
         os.chdir(casesfilepath)
@@ -87,21 +106,11 @@ def main():
 
         for f in os.listdir(casesfilepath):
             if f.find('.nii') != -1: #If it's a .nii file
-                epi_img = nib.load(f)
-                epi_img_data = epi_img.get_data()
+                epi_img_data = loadimage(f)
                 if epi_img_data.shape[0] * epi_img_data.shape[1] == numpixels:
-                    findex = int(f[1:5])-1
-                    if isaxial and isnarrowaxial:                    
-                        fstart = caseindices[findex,1]
-                        fstop = caseindices[findex,2]
-                    elif isaxial == True and isnarrowaxial == False:
-                        fstart = caseindices[findex,0]
-                        fstop = caseindices[findex,3]
-                    else:
-                        fstart = caseindices[findex,4]
-                        fstop = caseindices[findex,5]
-                    fstart = int(fstart)
-                    fstop = int(fstop)
+
+##################REVISION STARTED
+                    fstart, fstop = imgindexselection(f)
                     os.chdir(experimentfilepath)
                     subsectimage(f,epi_img_data,fstart,fstop, isaxial)
                     os.chdir(casesfilepath)
@@ -109,27 +118,14 @@ def main():
         os.chdir(validationfilepath)
         for f in os.listdir(validationfilepath):
             if f.find('.nii') != -1: #If it's a .nii file
-                epi_img = nib.load(f)
-                epi_img_data = epi_img.get_data()
+                epi_img_data = loadimage(f)
                 if epi_img_data.shape[0] * epi_img_data.shape[1] == numpixels:
-                    findex = int(f[1:5])-1
-                    if isaxial and isnarrowaxial:                    
-                        fstart = caseindices[findex,1]
-                        fstop = caseindices[findex,2]
-                    elif isaxial == True and isnarrowaxial == False:
-                        fstart = caseindices[findex,0]
-                        fstop = caseindices[findex,3]
-                    else:
-                        fstart = caseindices[findex,4]
-                        fstop = caseindices[findex,5]
-                    fstart = int(fstart)
-                    fstop = int(fstop)
+                    fstart, fstop = imgindexselection(f)
                     os.chdir(experimentvalidationfilepath)
                     subsectimage(f,epi_img_data,fstart,fstop, isaxial)
                     os.chdir(validationfilepath)
     
     # This process will flatten all '.dat' files into one matrix and track labels
-
     # initializations, constants
         flatcasesmatrix = np.empty((0,numpixels))
         flatvalidationmatrix = np.empty((0,numpixels))
