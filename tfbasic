@@ -3,20 +3,22 @@ import nibabel as nib
 import os
 import numpy as np
 import tensorflow as tf
+from sklearn import preprocessing
 
 
 
 
 
-def conv2d(x, W, b, strides=1):
+def conv2d(x, W, b, istraining, strides=1):
     x = tf.nn.conv2d(x, W, strides=[1, strides, strides, 1], padding='SAME')
     x = tf.nn.bias_add(x, b)
+    x = tf.contrib.layers.batch_norm(x, center=True,scale=True,is_training=istraining)
     return tf.nn.relu(x)
 
 def maxpool2d(x, k=2):
     return tf.nn.max_pool(x, ksize=[1, k, k, 1], strides=[1, k, k, 1], padding='SAME')
 
-def batch(x, y, availableindices, batchsize,noisebool):
+def batch(x, y, availableindices, batchsize,noisebool, SD):
     totalsize = availableindices.shape[0]
     indexofavailableindices = np.random.randint(totalsize, size=batchsize)
     indices = availableindices[indexofavailableindices]
@@ -26,17 +28,19 @@ def batch(x, y, availableindices, batchsize,noisebool):
     y_batch = y[indices]
     
     if noisebool == True:
-        noise = np.random.normal(loc=0.0, scale=SDvar, size=x_batch.shape)
+        noise = np.random.normal(loc=0.0, scale=SD, size=x_batch.shape)
         x_batch = np.rint(x_batch+noise)
         x_batch = np.minimum(x_batch, 255) #max value equal or below 255
         x_batch = np.maximum(x_batch, 0) # min value equal or above 0
 
     return x_batch, y_batch
 
+
+
 def main(checkpointsfilepath, flatcasesmatrix,labels,flatvalidationmatrix,validationlabels, casenums):
     tf.logging.set_verbosity(tf.logging.ERROR)
     learning_rate = 1e-6
-    training_iters = 5e5
+    training_iters = 1e5
     batch_size = 5
     display_step = 1000
     save_step = int(training_iters/2)
@@ -46,7 +50,7 @@ def main(checkpointsfilepath, flatcasesmatrix,labels,flatvalidationmatrix,valida
     n_input =  65536 # = 256 x 256
     n_classes = 3 #three total classes for classification
     dropout = .5
-    l2lambda = 1
+    l2lambda = 0
     windowlevel1 = 5
     windowlevel2 = 5
     SDvar = 20
@@ -55,22 +59,20 @@ def main(checkpointsfilepath, flatcasesmatrix,labels,flatvalidationmatrix,valida
     useholdout = True
     skipprintinggrad = False
     casewiseaccuracy = True
-    addnoise = False
+    addnoise = False # Currently incompatible to add noise and standardize. Will revise in future
+    standardizeinputs = True
+
+    if standardizeinputs == True:
+        flatcasesmatrix = preprocessing.scale(flatcasesmatrix, axis=0)
+        flatvalidationmatrix = preprocessing.scale(flatvalidationmatrix, axis=0) # Standardize inputs
 
 
-
-    # tf graph input
-    with tf.name_scope('initializing'):
-        x = tf.placeholder(tf.float32, [None, n_input], name="inputs")
-        y = tf.placeholder(tf.float32, [None, n_classes], name="labels")
-        keep_prob = tf.placeholder(tf.float32) #dropout
-
-
-    with tf.name_scope('batching'):
-        #Batching infrastructure
+    with tf.name_scope('batching'): # Batching infrastructure
+        np.random.seed(0) # sets seed
         allusedslices = set(casenums.flatten())
         allusedslices = list(allusedslices)
         np.random.shuffle(allusedslices)
+        np.random.seed(seed=None) # Clear seed
         holdoutcases = np.asarray(allusedslices[0:holdoutsize])
         trainingcases = np.asarray(allusedslices[holdoutsize + 1:])
 
@@ -92,18 +94,24 @@ def main(checkpointsfilepath, flatcasesmatrix,labels,flatvalidationmatrix,valida
         validationindices = np.asarray(range(0,validationlabels.shape[0]))
 
 
-    #model
+    with tf.name_scope('initializing'):
+        x = tf.placeholder(tf.float32, [None, n_input], name="inputs")
+        y = tf.placeholder(tf.float32, [None, n_classes], name="labels")
+        keep_prob = tf.placeholder(tf.float32) #dropout
+        istraining = tf.placeholder_with_default(tf.constant(True), shape=[]) # Initializing
+
+
     def conv_net(x, weights, biases, dropout):
         x = tf.reshape(x, shape=[-1,256,256,1])
     
         #convolution 1
         with tf.name_scope('conv1'):
-            conv1 = conv2d(x, weights['wc1'], biases['bc1'])
+            conv1 = conv2d(x, weights['wc1'], biases['bc1'], istraining)
             conv1 = maxpool2d(conv1, k=2)
             
         #convolution 2
         with tf.name_scope('conv2'):
-            conv2 = conv2d(conv1, weights['wc2'], biases['bc2'])
+            conv2 = conv2d(conv1, weights['wc2'], biases['bc2'], istraining)
             conv2 = maxpool2d(conv2, k=2)
     
         #fully connected layer
@@ -118,27 +126,27 @@ def main(checkpointsfilepath, flatcasesmatrix,labels,flatvalidationmatrix,valida
         # Output, class prediction
         with tf.name_scope('outlayer'):
             out = tf.add(tf.matmul(fc1, weights['out']), biases['out'])
-        return out
+        return out # Model
 
     # Store layers weight and bias
     
     with tf.name_scope('initializing'):
         weights = {
             #5x5 conv, 1 input, 32 outputs
-            'wc1': tf.Variable(tf.random_normal([windowlevel1, windowlevel1, 1, 32]), name="wc1"),
+            'wc1': tf.Variable(tf.random_normal([windowlevel1, windowlevel1, 1, 32], seed=1), name="wc1"),
             # 5x5 conv, 32 inputs, 64 outputs
-            'wc2': tf.Variable(tf.random_normal([windowlevel2, windowlevel2, 32, 32]), name="wc2"),
-            # fully connected, 32*64*64 inputs, 1024 outputs
-            'wd1': tf.Variable(tf.random_normal([32*64*64, 1024]), name="wd1"),
+            'wc2': tf.Variable(tf.random_normal([windowlevel2, windowlevel2, 32, 64], seed=1), name="wc2"),
+            # fully connected, 64*64*64 inputs, 1024 outputs
+            'wd1': tf.Variable(tf.random_normal([64*64*64, 1024], seed=1), name="wd1"),
             # 1024 inputs, 3 outputs
-            'out': tf.Variable(tf.random_normal([1024, n_classes]), name="wout")
+            'out': tf.Variable(tf.random_normal([1024, n_classes], seed=1), name="wout")
         }
 
         biases = {
-            'bc1': tf.Variable(tf.random_normal([32]), name="bc1"),
-            'bc2': tf.Variable(tf.random_normal([32]), name="bc2"),
-            'bd1': tf.Variable(tf.random_normal([1024]), name="bd1"),
-            'out': tf.Variable(tf.random_normal([n_classes]), name="bout")
+            'bc1': tf.Variable(tf.random_normal([32], seed=1), name="bc1"),
+            'bc2': tf.Variable(tf.random_normal([64], seed=1), name="bc2"),
+            'bd1': tf.Variable(tf.random_normal([1024], seed=1), name="bd1"),
+            'out': tf.Variable(tf.random_normal([n_classes], seed=1), name="bout")
         }
     
     global_step = tf.Variable(0, dtype=tf.int32, trainable=False, name='global_step')
@@ -154,7 +162,7 @@ def main(checkpointsfilepath, flatcasesmatrix,labels,flatvalidationmatrix,valida
 
     with tf.name_scope('train'):
         optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost, global_step=global_step)
-
+        
     # Evaluate model
     with tf.name_scope("evaluatingaccuracy"):
         correct_pred = tf.equal(tf.argmax(pred,1), tf.argmax(y,1))
@@ -192,26 +200,28 @@ def main(checkpointsfilepath, flatcasesmatrix,labels,flatvalidationmatrix,valida
         while step * batch_size < training_iters:
             tf.set_random_seed(step)
             np.random.seed(step)
-            batch_x, batch_y = batch(flatcasesmatrix, labels, trainingindices, batch_size, addnoise) 
+            batch_x, batch_y = batch(flatcasesmatrix, labels, trainingindices, batch_size, addnoise, SD=SDvar) 
             # run optimizer on (backprop)
             _, summary = sess.run([optimizer, summary_op], feed_dict={x: batch_x,
-                                           y: batch_y, 
-                                           keep_prob: dropout})
+                                                                      y: batch_y, 
+                                                                      keep_prob: dropout,
+                                                                      istraining: True})
             writer.add_summary(summary, step * batch_size)
             
                                            
-            if step % display_step == 0:
+            if step * batch_size % display_step == 0:
                 if useholdout:
-                    holdout_x, holdout_y = batch(flatcasesmatrix, labels, holdoutindices, 10*batch_size,noisebool=False)
+                    holdout_x, holdout_y = batch(flatcasesmatrix, labels, holdoutindices, 10*batch_size,noisebool=False, SD=SDvar)
                     loss, acc, gradz = sess.run([cost, accuracy,gradnorm], feed_dict={x: holdout_x,
                                                                       y: holdout_y,
-                                                                      keep_prob: 1.})
+                                                                      keep_prob: 1.,
+                                                                      istraining: False})
                     
 
                     if skipprintinggrad:
                         print("Holdout - Iter " + str(step*batch_size) + ", Minibatch Loss= " + \
                             "{:.6f}".format(loss) + ", Training Accuracy= " + \
-                            "{:.5f}".format(acc))
+                            "{:.5f}".format(acc)) # printing output
                     else:
                         print("Holdout - Iter " + str(step*batch_size) + ", Minibatch Loss= " + \
                             "{:.6f}".format(loss) + ", Training Accuracy= " + \
@@ -220,10 +230,11 @@ def main(checkpointsfilepath, flatcasesmatrix,labels,flatvalidationmatrix,valida
                     acclog = np.vstack((acclog,(step*batch_size,acc)))
 
                 else: # this is for testing on the test set
-                    holdout_x, holdout_y = batch(flatvalidationmatrix, validationlabels, validationindices, 4*batch_size, noisebool=False)
-                    loss, acc= sess.run([cost, accuracy], feed_dict={x: holdout_x,
+                    holdout_x, holdout_y = batch(flatvalidationmatrix, validationlabels, validationindices, 4*batch_size, noisebool=False, SD=SDvar)
+                    loss, acc = sess.run([cost, accuracy], feed_dict={x: holdout_x,
                                                                       y: holdout_y,
-                                                                      keep_prob: 1.})
+                                                                      keep_prob: 1.,
+                                                                      istraining: False})
 
                     print("Test set - Iter " + str(step*batch_size) + ", Minibatch Loss= " + \
                         "{:.6f}".format(loss) + ", Training Accuracy= " + \
@@ -237,7 +248,7 @@ def main(checkpointsfilepath, flatcasesmatrix,labels,flatvalidationmatrix,valida
                     for i in holdoutcases:
 
                         casewiseiindices = np.where(casenums ==i)[0]
-                        casewise_x, casewise_y = batch(flatcasesmatrix,labels,casewiseiindices,casewiseiindices.shape[0],noisebool=False)               
+                        casewise_x, casewise_y = batch(flatcasesmatrix,labels,casewiseiindices,casewiseiindices.shape[0],noisebool=False, SD=SDvar)               
                         predicts = sess.run(predictions, feed_dict={x: casewise_x,
                                                                           y: casewise_y,
                                                                           keep_prob: 1.})
@@ -257,10 +268,10 @@ def main(checkpointsfilepath, flatcasesmatrix,labels,flatvalidationmatrix,valida
                     
                     print "casewise accuracy was ", casewiseaccuracy
 
-                    casewiseacclog = np.vstack((casewiseacclog,(step*batch_size,casewiseaccuracy)))    
+                    casewiseacclog = np.vstack((casewiseacclog,(step*batch_size,casewiseaccuracy))) # logging accuracy
             
-            if step % save_step == 0:
-                saver.save(sess, '315prototype', global_step = global_step)
+            if step * batch_size % save_step == 0:
+                saver.save(sess, '315prototype', global_step = global_step) # saving files
 
                                 
             step += 1
